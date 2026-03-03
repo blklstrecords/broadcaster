@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="fi">
+  <head>
+    <meta charset="UTF-8" />
+    <title>BLKLIST Radio</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <style>
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: #050505;
+        color: #f5f5f5;
+        font-family:
+          system-ui,
+          -apple-system,
+          "Segoe UI",
+          sans-serif;
+      }
+      .box {
+        width: min(520px, 92vw);
+        padding: 22px;
+        border: 1px solid #2b2b2b;
+        border-radius: 16px;
+        background: radial-gradient(circle at top, #111 0, #050505 60%);
+        box-shadow: 0 0 30px rgba(0, 0, 0, 0.7);
+        text-align: center;
+      }
+      h1 {
+        margin: 0 0 6px;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        font-size: 1.5rem;
+      }
+      .sub {
+        color: #aaa;
+        font-size: 0.9rem;
+        margin-bottom: 16px;
+      }
+      audio {
+        width: 100%;
+        margin: 10px 0 14px;
+      }
+      button {
+        cursor: pointer;
+        border: 1px solid #333;
+        background: #0d0d0d;
+        color: #fff;
+        border-radius: 12px;
+        padding: 10px 14px;
+      }
+      .status {
+        margin-top: 10px;
+        font-size: 0.9rem;
+        color: #888;
+      }
+      .ok {
+        color: #57d957;
+      }
+      .err {
+        color: #ff5f5f;
+      }
+      .meta {
+        margin-top: 8px;
+        color: #777;
+        font-size: 0.8rem;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="box">
+      <h1>BLKLIST Radio</h1>
+      <div class="sub">radio.blklst.fi</div>
+
+      <div id="live-indicator" class="status">Checking stream status…</div>
+
+      <audio id="p" controls preload="none"></audio>
+      <button id="reconnect">Play / Reconnect</button>
+
+      <div id="status" class="status">Idle</div>
+      <div id="meta" class="meta"></div>
+    </div>
+
+    <script>
+      (() => {
+        const MOUNT = "/live.mp3";
+        const audio = document.getElementById("p");
+        const btn = document.getElementById("reconnect");
+        const liveEl = document.getElementById("live-indicator");
+        const statusEl = document.getElementById("status");
+        const metaEl = document.getElementById("meta");
+
+        // käytä samaa hostia/porttia mistä player.html ladataan
+        function streamUrl() {
+          return `${location.protocol}//${location.host}${MOUNT}`;
+        }
+
+        function setLive(online, listeners, bitrate) {
+          if (online) {
+            liveEl.textContent = `STREAM ONLINE${typeof listeners === "number" ? " — listeners: " + listeners : ""}`;
+            liveEl.className = "status ok";
+            metaEl.textContent = bitrate ? `Bitrate: ${bitrate} kbps` : "";
+          } else {
+            liveEl.textContent = "STREAM OFFLINE";
+            liveEl.className = "status err";
+            metaEl.textContent = "";
+          }
+        }
+
+        function setStatus(text, cls) {
+          statusEl.textContent = text;
+          statusEl.className = "status" + (cls ? " " + cls : "");
+        }
+
+        async function poll() {
+          try {
+            const res = await fetch("/status-json.xsl", { cache: "no-store" });
+            if (!res.ok) throw new Error("HTTP " + res.status);
+            const data = await res.json();
+            const icestats = data.icestats || {};
+            let src = icestats.source;
+
+            if (!src) {
+              setLive(false);
+              return;
+            }
+
+            // Icecast voi palauttaa object tai array
+            if (!Array.isArray(src)) src = [src];
+
+            // match mount mount-nimellä tai listenurlin lopulla
+            const match = src.find(
+              (s) => (s.mount && s.mount === MOUNT) || (s.listenurl && s.listenurl.endsWith(MOUNT)),
+            );
+
+            if (!match) {
+              setLive(false);
+              return;
+            }
+
+            const listeners = parseInt(match.listeners ?? "0", 10);
+            const bitrate = match.bitrate ? parseInt(match.bitrate, 10) : null;
+            setLive(true, isNaN(listeners) ? 0 : listeners, bitrate);
+          } catch (e) {
+            setLive(false);
+          }
+        }
+
+        function start() {
+          audio.src = streamUrl();
+          setStatus("Connecting…", "");
+          audio
+            .play()
+            .then(() => setStatus("Playing", "ok"))
+            .catch(() => setStatus("Click Play / Reconnect (browser blocked autoplay or stream offline)", "err"));
+        }
+
+        audio.addEventListener("playing", () => setStatus("Playing", "ok"));
+        audio.addEventListener("error", () => setStatus("Stream error/offline. Try reconnect.", "err"));
+
+        btn.addEventListener("click", () => {
+          audio.pause();
+          audio.currentTime = 0;
+          start();
+        });
+
+        poll();
+        setInterval(poll, 5000);
+      })();
+    </script>
+  </body>
+</html>
