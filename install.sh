@@ -3,7 +3,7 @@ set -euo pipefail
 
 # update package index and install runtime dependencies
 sudo apt update
-sudo apt install -y ffmpeg curl jq
+sudo apt install -y ffmpeg curl jq locales
 
 # create a dedicated system account for the broadcaster service if it doesn't exist
 # this user will own the installation directories and will be used by the systemd units

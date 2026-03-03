@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# force UTF-8 locale so message text is encoded consistently across systems
+export LANG="${LANG:-C.UTF-8}"
+export LC_ALL="${LC_ALL:-C.UTF-8}"
+
 # ---- URLs ----
 PUBLIC_STREAM_URL="${PUBLIC_STREAM_URL:-}"
 ICECAST_URL="${ICECAST_URL:-}"
@@ -55,7 +59,7 @@ notify_discord() {
   fi
   echo "$state" > "$statefile"
 
-  curl -sS -H "Content-Type: application/json" \
+  curl -sS -H "Content-Type: application/json; charset=utf-8" \
     -d "{\"content\":\"${msg}\"}" \
     "$DISCORD_WEBHOOK_URL" >/dev/null || true
 }
@@ -119,6 +123,13 @@ broadcaster_start() {
 
   log "Starting broadcaster: ${ALSA_DEVICE} (${IN_FMT}/${IN_CH}ch/${RATE}) -> ${OUTPUT_FORMAT} ${BITRATE} (gain ${GAIN_DB})"
   log "Output URL: ${ICECAST_URL}"
+
+  local audio_filter
+  if [[ -n "${LIMITER}" ]]; then
+    audio_filter="volume=${GAIN_DB},${LIMITER},aresample=async=1:first_pts=0"
+  else
+    audio_filter="volume=${GAIN_DB},aresample=async=1:first_pts=0"
+  fi
   
   notify_online
 
@@ -126,7 +137,7 @@ broadcaster_start() {
     -f alsa -thread_queue_size 16384 \
     -ac "${IN_CH}" -ar "${RATE}" -sample_fmt s32 \
     -i "${ALSA_DEVICE}" \
-    -af "volume=${GAIN_DB},${LIMITER},aresample=async=1:first_pts=0" \
+    -af "${audio_filter}" \
     -codec:a "${OUTPUT_CODEC}" -b:a "${BITRATE}" -minrate "${BITRATE}" -maxrate "${BITRATE}" -bufsize 512k \
     -content_type "${OUTPUT_CONTENT_TYPE}" \
     -f "${OUTPUT_FORMAT}" "${ICECAST_URL}" >/dev/null 2>&1 &
