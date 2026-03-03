@@ -18,9 +18,9 @@ IN_CH="${IN_CH:-2}" # e.g. 2 for stereo, 1 for mono. If your device is stereo bu
 # ---- Encode ----
 BITRATE="${BITRATE:-256k}" # e.g. "256k" for MP3, ignored for WAV
 
-OUTPUT_CODEC="pcm_s16le"  # e.g. "libmp3lame" for MP3, "pcm_s16le" for WAV (for debugging)
-OUTPUT_CONTENT_TYPE="audio/wav"  # e.g. "audio/mpeg" for MP3, "audio/wav" for WAV (for debugging)
-OUTPUT_FORMAT="${OUTPUT_FORMAT:-wav}"  # e.g. "mp3" or "wav" (for debugging)
+OUTPUT_CODEC="${OUTPUT_CODEC:-libmp3lame}"  # e.g. "libmp3lame" for MP3, "pcm_s16le" for WAV (for debugging)
+OUTPUT_CONTENT_TYPE="${OUTPUT_CONTENT_TYPE:-audio/mpeg}"  # e.g. "audio/mpeg" for MP3, "audio/wav" for WAV (for debugging)
+OUTPUT_FORMAT="${OUTPUT_FORMAT:-mp3}"  # e.g. "mp3" or "wav" (for debugging)
 
 # ---- Gain / safety ----
 # Start conservative: 6 dB gain + limiter. If still quiet, bump GAIN_DB to 9dB or 12dB.
@@ -118,6 +118,8 @@ broadcaster_start() {
   fi
 
   log "Starting broadcaster: ${ALSA_DEVICE} (${IN_FMT}/${IN_CH}ch/${RATE}) -> ${OUTPUT_FORMAT} ${BITRATE} (gain ${GAIN_DB})"
+  log "Output URL: ${ICECAST_URL}"
+  
   notify_online
 
   ffmpeg -hide_banner -nostdin -loglevel warning \
