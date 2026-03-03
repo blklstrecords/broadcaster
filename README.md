@@ -18,6 +18,54 @@ Windows clients.
 
 Make sure the script is executed as root.
 
+## Generic overview
+
+Typical BLKLST setup:
+
+- **Audio interface**: Traktor Audio 6 (or similar USB interface)
+- **Encoder host**: Raspberry Pi running this `broadcaster` project
+- **Streaming server**: PC running Icecast (`windows/Icecast` assets)
+- **Automation/helpers**: Windows `Radio` scripts (`broadcaster.bat`,
+  `finalize.ps1`, etc.)
+
+High-level signal/data flow:
+
+1. Audio source -> Traktor Audio 6 input.
+2. Raspberry Pi captures/encodes audio and sends stream to Icecast.
+3. Icecast serves listeners on port `8000` (and web/status pages).
+4. Optional Windows Radio scripts manage service state and recording file
+   rotation.
+
+## Network and WAN setup
+
+For remote listeners to reach your stream from the internet, you must enable
+**port forwarding on your local router** and forward incoming WAN traffic to the
+**internal Raspberry Pi LAN address**.
+
+Without router port forwarding, the stream may work on your local network but
+will not be reachable from outside.
+
+### Example WAN/IPv4 port forwarding table
+
+From your router's Advanced -> WAN services / IPv4 Port forwarding table:
+
+| Name                  | Protocol | WAN port | LAN port | Destination IP | Destination MAC   |
+| --------------------- | -------- | -------: | -------: | -------------- | ----------------- |
+| BLKLST Live           | TCP/UDP  |       80 |     8000 | 192.168.1.161  | 3c:7c:3f:2c:16:0a |
+| BLKLST Live Broadcast | TCP/UDP  |     8000 |     8000 | 192.168.1.161  | 3c:7c:3f:2c:16:0a |
+
+Interpretation:
+
+- Public port `80` -> Raspberry Pi `192.168.1.161:8000`
+- Public port `8000` -> Raspberry Pi `192.168.1.161:8000`
+
+Recommended checks:
+
+- Reserve a DHCP/static lease for the Raspberry Pi (so `192.168.1.161` does not
+  change).
+- Allow the same ports in host firewalls (Pi/Windows) if enabled.
+- Verify externally (mobile data or external network), not from the same LAN.
+
 ## Windows guide (Icecast + Radio)
 
 ### 1) Install Icecast on Windows
