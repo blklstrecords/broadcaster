@@ -1,0 +1,17 @@
+[Unit]
+Description=BLKLST broadcaster stream
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+# run under the unprivileged system account created by install.sh
+User=broadcaster
+Group=broadcaster
+ExecStart=/opt/broadcaster/bin/broadcaster.sh
+Restart=always
+RestartSec=5
+# environment variables (API tokens, etc.) are loaded from the shared file
+EnvironmentFile=/etc/broadcaster/broadcaster.env
+
+[Install]
+WantedBy=multi-user.target

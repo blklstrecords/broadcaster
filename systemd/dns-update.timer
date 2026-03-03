@@ -1,0 +1,10 @@
+[Unit]
+Description=Timer for periodic Cloudflare DNS updates
+
+[Timer]
+# run every 30 minutes; adjust as needed
+OnCalendar=*:0/30
+Persistent=true
+
+[Install]
+WantedBy=timers.target

@@ -1,27 +1,19 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# =========================
-# BLKLIST Live Auto Stream
-# - Check every minute: if LOCAL input has audio -> start streaming
-# - While streaming: probe PUBLIC stream (listener view) for silence
-# - Stop after 5 minutes of PUBLIC silence
-# - Send Discord webhook on state change
-# =========================
-
 # ---- URLs ----
 PUBLIC_STREAM_URL="${PUBLIC_STREAM_URL:-http://live.blklst.fi:8000/blklistlive.mp3}"
 ICECAST_URL="${ICECAST_URL:-icecast://source:blklst@live.blklst.fi:8000/blklistlive.mp3}"
 
 # ---- Discord ----
 DISCORD_WEBHOOK_URL="${DISCORD_WEBHOOK_URL:-}"  # recommend: export in env or systemd EnvironmentFile
-STREAM_PUBLIC_URL="${PUBLIC_STREAM_URL:-}"
+STREAM_PUBLIC_URL="${PUBLIC_STREAM_URL:-}" # included in Discord notifications so listeners can easily click to listen when stream goes online
 
 # ---- Local capture (Traktor Audio 6) ----
 ALSA_DEVICE="${ALSA_DEVICE:-plughw:CARD=T6,DEV=0}"
-RATE="${RATE:-48000}"
-IN_FMT="${IN_FMT:-S32_LE}"
-IN_CH="${IN_CH:-2}"
+RATE="${RATE:-44100}" # e.g. 44100 or 48000, should match the capture device sample rate for best results
+IN_FMT="${IN_FMT:-S32_LE}" # e.g. "S32_LE" for 32-bit signed little-endian (Traktor Audio 6), "S16_LE" for 16-bit signed little-endian, etc. Check with `arecord -L` and `arecord -D <device> --dump-hw-params` for your device.
+IN_CH="${IN_CH:-2}" # e.g. 2 for stereo, 1 for mono. If your device is stereo but you want mono, you can set IN_CH=1 and ffmpeg will automatically downmix to mono.
 
 # ---- Encode ----
 BITRATE="${BITRATE:-256k}" # e.g. "256k" for MP3, ignored for WAV
@@ -32,8 +24,9 @@ OUTPUT_FORMAT="${OUTPUT_FORMAT:-wav}"  # e.g. "mp3" or "wav" (for debugging)
 
 # ---- Gain / safety ----
 # Start conservative: 6 dB gain + limiter. If still quiet, bump GAIN_DB to 9dB or 12dB.
-GAIN_DB="${GAIN_DB:-6dB}"
-LIMITER="${LIMITER:-alimiter=limit=-1.0dB:level=true}"
+GAIN_DB="${GAIN_DB:-6dB}" # e.g. "6dB", "9dB", "12dB", etc. Adjust based on your input levels and desired output volume. If your input is already hot (e.g. -10 dB max), you might want to set GAIN_DB=0dB or even a negative gain to avoid clipping. If your input is very quiet (e.g. -40 dB max), you can try 6dB, 9dB, or 12dB gain to boost the volume, but be careful with clipping if the input suddenly gets louder.
+#LIMITER="${LIMITER:-alimiter=limit=-1.0dB:level=true}" # hard limit at -1.0 dB to prevent clipping, with "level=true" it will also reduce gain if input is too hot, otherwise it would just hard clip and sound bad. Note that the limiter adds some latency (e.g. 100-200ms) so if you need very low latency, you can try removing the limiter and just use a fixed gain, but be careful with clipping.
+LIMITER="${LIMITER:-}" # for very low latency, you can try removing the limiter and just use a fixed gain, but be careful with clipping. If you have enough headroom in your input levels, you can also keep the limiter for safety and set a higher gain (e.g. 9dB or 12dB) to get more volume without clipping.
 
 # ---- Start detection (local input) ----
 ACTIVE_THRESHOLD_DB="${ACTIVE_THRESHOLD_DB:-$-45}"        # start if local max_volume > this
@@ -54,7 +47,7 @@ notify_discord() {
   [[ -z "${DISCORD_WEBHOOK_URL}" ]] && return 0
 
   # Debounce: don't send same state twice
-  local statefile="/tmp/broadcaster_state"
+  local statefile="/tmp/state"
   local prev=""
   [[ -f "$statefile" ]] && prev="$(cat "$statefile" 2>/dev/null || true)"
   if [[ "$prev" == "$state" ]]; then
@@ -89,42 +82,42 @@ is_running() {
   kill -0 "$ffpid" 2>/dev/null
 }
 
-broadcaster_stop() {
+stop() {
   if [[ ! -f "$PIDFILE" ]]; then
     return 0
   fi
 
   local ffpid
   if ffpid="$(read_pid)"; then
-    log "Stopping stream (ffmpeg=$ffpid) ..."
+    log "Stopping broadcaster (ffmpeg=$ffpid) ..."
     kill "$ffpid" 2>/dev/null || true
     sleep 0.3
     kill -9 "$ffpid" 2>/dev/null || true
   else
-    log "Stopping stream (pidfile unreadable) ..."
+    log "Stopping broadcaster (pidfile unreadable) ..."
   fi
 
   rm -f "$PIDFILE" 2>/dev/null || true
-  log "Stream stopped."
+  log "Broadcaster stopped."
   notify_offline
 }
 
 cleanup() {
   log "Exiting..."
-  broadcaster_stop
+  stop
   exit 0
 }
 trap cleanup INT TERM
 
-broadcaster_start() {
+start() {
   if is_running; then
     local ffpid
     ffpid="$(read_pid)" || true
-    log "Stream already running (ffmpeg=$ffpid)."
+    log "Broadcaster already running (ffmpeg=$ffpid)."
     return 0
   fi
 
-  log "Starting stream: ${ALSA_DEVICE} (${IN_FMT}/${IN_CH}ch/${RATE}) -> ${OUTPUT_FORMAT} ${BITRATE} (gain ${GAIN_DB})"
+  log "Starting broadcaster: ${ALSA_DEVICE} (${IN_FMT}/${IN_CH}ch/${RATE}) -> ${OUTPUT_FORMAT} ${BITRATE} (gain ${GAIN_DB})"
   notify_online
 
   ffmpeg -hide_banner -nostdin -loglevel warning \
@@ -134,11 +127,11 @@ broadcaster_start() {
     -af "volume=${GAIN_DB},${LIMITER},aresample=async=1:first_pts=0" \
     -codec:a "${OUTPUT_CODEC}" -b:a "${BITRATE}" -minrate "${BITRATE}" -maxrate "${BITRATE}" -bufsize 512k \
     -content_type "${OUTPUT_CONTENT_TYPE}" \
-    -f "${OUTPUT_FORMAT}" "${OUTPUT_FILE}" >/dev/null 2>&1 &
+    -f "${OUTPUT_FORMAT}" "${ICECAST_URL}" >/dev/null 2>&1 &
 
   local ffpid=$!
   echo "$ffpid" > "$PIDFILE"
-  log "Stream started (ffmpeg=$ffpid)."
+  log "Broadcaster started (ffmpeg=$ffpid)."
 }
 
 measure_local_max_db() {
@@ -173,11 +166,6 @@ measure_remote_max_db() {
 }
 
 log "Broadcaster db measurer started."
-log "Config:"
-log "  local:  device=${ALSA_DEVICE}, in=${IN_FMT}/${IN_CH}ch/${RATE}, start_if_local_max>${ACTIVE_THRESHOLD_DB} dB"
-log "  stream: bitrate=${BITRATE}, gain=${GAIN_DB}"
-log "  remote: probe=${PUBLIC_STREAM_URL}, stop_if_remote_max<=${REMOTE_SILENCE_THRESHOLD_DB} dB for ${STOP_AFTER_SILENCE_MINUTES} min"
-log "  check:  every ${CHECK_EVERY_SECONDS}s"
 
 silence_minutes=0
 
@@ -198,7 +186,7 @@ while true; do
       log "Remote silence minute ${silence_minutes}/${STOP_AFTER_SILENCE_MINUTES}"
       if (( silence_minutes >= STOP_AFTER_SILENCE_MINUTES )); then
         log "Remote silent for ${STOP_AFTER_SILENCE_MINUTES} minutes -> stopping stream."
-        broadcaster_stop
+        stop
         silence_minutes=0
       fi
     else
@@ -220,7 +208,7 @@ while true; do
   log "Local max_volume: ${lmax} dB"
   is_active="$(awk -v r="$lmax" -v t="$ACTIVE_THRESHOLD_DB" 'BEGIN{print (r>t) ? 1 : 0}')"
   if [[ "$is_active" == "1" ]]; then
-    broadcaster_start
+    start
   fi
 
   sleep "$CHECK_EVERY_SECONDS"

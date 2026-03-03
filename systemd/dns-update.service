@@ -1,0 +1,14 @@
+[Unit]
+Description=Update Cloudflare DNS record for the live stream
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=broadcaster
+Group=broadcaster
+ExecStart=/opt/broadcaster/bin/dns-update.sh
+EnvironmentFile=/etc/broadcaster/broadcaster.env
+
+[Install]
+WantedBy=multi-user.target
