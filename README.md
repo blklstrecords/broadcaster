@@ -1,5 +1,81 @@
 # broadcaster
 
+## Project description
+
+`broadcaster` is a hybrid Linux + Windows radio streaming toolkit for running an always-on BLKLST live broadcast stack.
+
+It is designed around a Raspberry Pi encoder node (audio capture + ffmpeg publish + stream health monitor), a Windows Icecast host (stream distribution + web status/player), and optional Windows Radio helper scripts for service control and recording file finalization.
+
+The project automates common operational tasks: service installation, stream start/stop decisions based on real audio levels, periodic public DNS updates through Cloudflare, and optional Discord notifications for online/offline state changes.
+
+## Feature breakdown
+
+### 1) Linux encoder automation (Raspberry Pi / Debian)
+
+- Automated installation of runtime dependencies (`ffmpeg`, `curl`, `jq`, `locales`) via `install.sh`.
+- Creates a dedicated unprivileged `broadcaster` system user for safer long-running service execution.
+- Installs runtime scripts under `/opt/broadcaster/bin` and configuration under `/etc/broadcaster`.
+- Applies restricted ownership/permissions (`root:broadcaster` for config, executable service-owned runtime scripts).
+- Enables and starts systemd units automatically after installation.
+
+### 2) Stream lifecycle intelligence (`bin/broadcaster.sh`)
+
+- Captures audio from ALSA devices (default target supports Traktor Audio 6).
+- Encodes and publishes audio to Icecast using configurable codec/format/bitrate.
+- Supports configurable gain and optional limiter chain for loudness control and clipping safety.
+- Auto-starts streaming only when local input exceeds an activity threshold (`ACTIVE_THRESHOLD_DB`).
+- Continuously probes the public stream; stops streaming after sustained remote silence.
+- Uses PID-based process control to avoid duplicate ffmpeg processes and allow clean stop handling.
+- Handles probe failures gracefully (network/CDN issues do not instantly kill the stream).
+
+### 3) Notification and observability
+
+- Optional Discord webhook notifications for stream state transitions (ONLINE/OFFLINE).
+- Debounced state notifications prevent repeated duplicate messages.
+- Timestamped operational logs for easier troubleshooting in `journalctl`.
+- UTF-8 locale enforcement (`C.UTF-8`) for consistent cross-platform log/message encoding.
+
+### 4) Dynamic DNS automation (`bin/dns-update.sh`)
+
+- Updates a Cloudflare `A` record to the current public IP using API token auth.
+- Runs through a systemd one-shot service + timer (`dns-update.service` + `dns-update.timer`).
+- Periodic schedule (every 30 minutes by default) with persistent timer behavior.
+- JSON response output piped through `jq` for readable API result inspection.
+
+### 5) systemd service architecture
+
+- `broadcaster.service`: long-running stream monitor/publisher process.
+- `dns-update.service`: one-shot DNS update task.
+- `dns-update.timer`: periodic trigger for DNS updates.
+- Uses `EnvironmentFile=/etc/broadcaster/broadcaster.env` for centralized secret/runtime config.
+- Configured with restart policy (`Restart=always`) for resilient encoder operation.
+
+### 6) Windows Icecast support assets
+
+- Includes ready-to-use Icecast config and custom web/status UI files under `windows/Icecast/`.
+- Provides browser-accessible local status/player endpoints (`/status.xsl`, `/player.html`).
+- Supports interactive launch (`icecast.bat`) or service mode via NSSM.
+
+### 7) Windows Radio helper scripts
+
+- `windows/Radio/broadcaster.bat`: controls Icecast service (`start`, `stop`, `restart`).
+- Ensures recording directory exists (`D:\Recordings`) before service operations.
+- Performs service existence/state checks and reports human-readable status.
+- `windows/Radio/finalize.ps1`: lock-aware recording finalizer; renames `current.mp3` into timestamped archive files.
+- `windows/Radio/recorder.bat`: PowerShell loop helper for periodic file rotation behavior.
+
+### 8) Configuration-driven behavior
+
+- Single environment file pattern (`etc/broadcaster.env.example` -> `/etc/broadcaster/broadcaster.env`).
+- Tunable stream endpoint, codec, gain/limiter, thresholds, Cloudflare IDs, and webhook settings.
+- Supports both MP3-style output and WAV/debug-style output based on env values.
+
+### 9) Operations and lifecycle management
+
+- Included uninstall flow (`uninstall.sh`) to disable services/timers, remove files, and delete service user.
+- Documented status and log commands for quick runtime diagnostics.
+- Designed for unattended operation while keeping manual override paths available.
+
 ## Installation notes
 
 The installer now creates a dedicated system account called `broadcaster` which
